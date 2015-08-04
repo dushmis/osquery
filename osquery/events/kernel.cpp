@@ -11,9 +11,10 @@
 #include "osquery/events/kernel.h"
 
 #include <osquery/logger.h>
-#include <osquery/core.h>
 
 namespace osquery {
+
+FLAG(bool, disable_kernel, false, "Disable osquery kernel extension");
 
 static const size_t shared_buffer_size_bytes = (20 * (1 << 20));
 static const int max_events_before_sync = 1000;
@@ -21,6 +22,10 @@ static const int max_events_before_sync = 1000;
 REGISTER(KernelEventPublisher, "event_publisher", "kernel");
 
 Status KernelEventPublisher::setUp() {
+  if (kToolType == OSQUERY_TOOL_DAEMON) {
+    loadKernelExtension();
+  }
+
   try {
     queue_ = new CQueue(shared_buffer_size_bytes);
   } catch (const CQueueException &e) {
@@ -56,6 +61,8 @@ Status KernelEventPublisher::run() {
   if (queue_ == nullptr) {
     return Status(1, "No kernel communication.");
   }
+
+  // Perform queue read min/max synchronization.
   try {
     int drops = 0;
     if ((drops = queue_->kernelSync(OSQUERY_DEFAULT)) > 0 &&
@@ -66,14 +73,20 @@ Status KernelEventPublisher::run() {
     LOG(WARNING) << e.what();
   }
 
+  // Iterate over each event type in the queue and appropriately fire each.
   int max_before_sync = max_events_before_sync;
   KernelEventContextRef ec;
   osquery_event_t event_type = OSQUERY_NULL_EVENT;
   CQueue::event *event = nullptr;
   while (max_before_sync > 0 && (event_type = queue_->dequeue(&event))) {
+    // Each event type may use a specific event type structure.
     switch (event_type) {
       case OSQUERY_PROCESS_EVENT:
         ec = createEventContextFrom<osquery_process_event_t>(event_type, event);
+        fire(ec);
+        break;
+      case OSQUERY_FILE_EVENT:
+        ec = createEventContextFrom<osquery_file_event_t>(event_type, event);
         fire(ec);
         break;
       default:
@@ -107,5 +120,4 @@ bool KernelEventPublisher::shouldFire(const KernelSubscriptionContextRef &sc,
                                       const KernelEventContextRef &ec) const {
   return ec->event_type == sc->event_type;
 }
-
 }  // namespace osquery

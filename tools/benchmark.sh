@@ -45,11 +45,17 @@ OUTDIR="$SCRIPT_DIR/../build/benchmarks"
 NODE=$(echo $NODE_LABELS | awk '{print $NF}')
 mkdir -p $OUTDIR
 
-export BENCHMARK_TO_FILE="--benchmark_format=csv :>$OUTDIR/$NODE-benchmark.csv"
-make run-benchmark
+REPETITIONS=5
 
-export BENCHMARK_TO_FILE="--benchmark_format=csv :>$OUTDIR/$NODE-kernel-benchmark.csv"
-make run-kernel-benchmark
+export BENCHMARK_TO_FILE="--benchmark_format=csv --benchmark_repetitions=$REPETITIONS :>$OUTDIR/$NODE-benchmark.csv"
+make run-benchmark/fast
 
+export BENCHMARK_TO_FILE="--benchmark_format=csv --benchmark_repetitions=$REPETITIONS :>$OUTDIR/$NODE-kernel-benchmark.csv"
+make run-kernel-benchmark/fast
+
+strip $(find $SCRIPT_DIR/../build -name "osqueryi" | xargs)
+strip $(find $SCRIPT_DIR/../build -name "osqueryd" | xargs)
+wc -c $(find $SCRIPT_DIR/../build -name "osqueryi" | xargs) | head -n 1 | awk '{print "\"EXECUTABLE_osqueryi_size\","$1",,,,,\""$2"\""}' >>$OUTDIR/$NODE-benchmark.csv
+wc -c $(find $SCRIPT_DIR/../build -name "osqueryd" | xargs) | head -n 1 | awk '{print "\"EXECUTABLE_osqueryd_size\","$1",,,,,\""$2"\""}' >>$OUTDIR/$NODE-benchmark.csv
 
 exit 0
