@@ -64,7 +64,7 @@ endif()
 
 if(PLATFORM STREQUAL "")
   WARNING_LOG("Unable to detect osquery platform: ./tools/provision.sh failed")
-  message(FATAL "Cannot proceed without knowing the build platform")
+  message(FATAL_ERROR "Cannot proceed without knowing the build platform")
 endif()
 list(GET PLATFORM 0 OSQUERY_BUILD_PLATFORM)
 list(GET PLATFORM 1 OSQUERY_BUILD_DISTRO)
@@ -149,7 +149,7 @@ else()
 endif()
 
 if(NOT DEFINED ENV{OPTIMIZED})
-  add_compile_options(-march=x86-64 -mtune=i386 -mno-avx)
+  add_compile_options(-march=x86-64 -mno-avx)
 endif()
 
 # make analyze (environment variable from Makefile)
@@ -268,15 +268,27 @@ endif()
 execute_process(COMMAND mkdir -p "${CMAKE_BINARY_DIR}/generated")
 
 # We need to link some packages as dynamic/dependent.
-set(CMAKE_FIND_LIBRARY_SUFFIXES .dylib .so)
-find_package(OpenSSL REQUIRED)
+set(CMAKE_FIND_LIBRARY_SUFFIXES .dylib .so .a)
 find_package(BZip2 REQUIRED)
 find_package(Dl REQUIRED)
 find_package(Readline REQUIRED)
 
+# Apple has deprecated OpenSSL, static link with brew bottled libressl
+if(APPLE AND (DEFINED ENV{BUILD_USE_LIBRESSL} OR ${OSQUERY_BUILD_DISTRO} STREQUAL "10.11"))
+  if(NOT DEFINED ENV{BUILD_LINK_SHARED})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES .a .dylib .so)
+  endif()
+  execute_process(COMMAND brew --prefix OUTPUT_VARIABLE BREW_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+  set(OPENSSL_ROOT_DIR "${BREW_PREFIX}/opt/libressl")
+endif()
+find_package(OpenSSL REQUIRED)
+include_directories("${OPENSSL_INCLUDE_DIR}")
+
 # Make sure the OpenSSL/ssl library has a TLS client method.
 # Prefer the highest version of TLS, but accept 1.2, 1.1, or 1.0.
 include(CheckLibraryExists)
+set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
+set(CMAKE_REQUIRED_LIBRARIES ${OPENSSL_LIBRARIES})
 CHECK_LIBRARY_EXISTS(${OPENSSL_SSL_LIBRARY} "TLSv1_2_client_method" "" OPENSSL_TLSV12)
 CHECK_LIBRARY_EXISTS(${OPENSSL_SSL_LIBRARY} "TLSv1_1_client_method" "" OPENSSL_TLSV11)
 CHECK_LIBRARY_EXISTS(${OPENSSL_SSL_LIBRARY} "TLSv1_client_method" "" OPENSSL_TLSV10)
@@ -289,7 +301,7 @@ elseif(OPENSSL_TLSV11)
 elseif(OPENSSL_TLSV10)
   add_definitions(-DSSL_TXT_TLSV1)
 else()
-  message(FATAL "Cannot find any TLS client methods")
+  message(FATAL_ERROR "Cannot find any TLS client methods")
 endif()
 
 # Most dependent packages/libs we want static.
